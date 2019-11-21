@@ -29,7 +29,7 @@ gem 'sidekiq', '5.2.7'
 
 group :test do
   gem "factory_bot_rails"
-  gem "faker"
+  gem "ffaker"
 end
 
 # Use jquery as the JavaScript library
