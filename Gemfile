@@ -26,6 +26,8 @@ gem 'materialize-sass', '~> 0.99.0'
 gem 'material_icons'
 gem 'redis'
 gem 'sidekiq', '5.2.7'
+gem 'inky-rb', require: 'inky'
+gem 'premailer-rails'
 
 group :test do
   gem "factory_bot_rails"
