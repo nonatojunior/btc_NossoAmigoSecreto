@@ -1,0 +1,2761 @@
+-Planejando e preparando o projeto:
+  Ferramentas utilizadas:
+    Ruby On Rails: http://rubyonrails.org/
+    PostgreSQL: https://www.postgresql.org/
+    Redis: https://redis.io/
+    Docker: https://www.docker.com/
+    Docker-Compose: https://docs.docker.com/compose/
+
+  Serviços externos utilizados:
+    Digital Ocean: digitalocean.com
+    Codeship: http://codeship.com/
+    Sendgrid: https://sendgrid.com
+    GoDaddy: http://godaddy.com
+    Cloudflare: http://cloudflare.com
+
+  Bibliotecas utilizadas:
+    devise (4.3.0) [https://github.com/plataformatec/devise]
+    materialize-sass (0.98.2) [https://github.com/mkhairi/materialize-sass]
+    material_icons (2.2.1) [https://github.com/Angelmmiguel/material_icons]
+    devise_materialize (~> 1.0.0) [https://github.com/techgurupezza/devise_materialize]
+    factory_girl_rails (4.8.0) [https://github.com/thoughtbot/factory_girl_rails]
+    ffaker (2.5.0) [https://github.com/ffaker/ffaker]
+    rspec-rails (3.6.0) [https://github.com/rspec/rspec-rails]
+    sendgrid-ruby (5.0.0) [https://github.com/sendgrid/sendgrid-ruby]
+    sidekiq (4.0.0) [https://github.com/mperham/sidekiq]
+
+  Ferramentas de documentação:
+    Db Designer: dbdesigner.net
+    Mockflow: https://wireframepro.mockflow.com
+    Evernote: https://evernote.com
+    Google Docs: docs.google.com
+
+-A Ordem – Planejamento Técnico
+  Planejamento Criativo:
+  https://docs.google.com/document/d/1hfwwVXbCMsQ0KaObm7LK4lK5_gX1DlJmfW_w8_y5tq4/edit#heading=h.kk1966kbedef
+
+  Planejamento Técnico:
+  https://docs.google.com/document/d/1BqGOZC2qFRKFoEMk561YbV821-cSbYB–w1ezDD2Xy8/edit
+
+-Criação do Ambiente do Projeto
+  1 - Para criar nosso APP rode:
+    docker run -it --rm --user "$(id -u):$(id -g)" -v "$PWD":/usr/src/app -w /usr/src/app rails rails new --skip-bundle nosso_amigo_secreto --database=postgresql
+
+  2 - Crie um arquivo chamado dockerfile na raiz do seu projeto e coloque nele:
+    FROM ruby:2.5.1-slim
+
+    # Instala nossas dependencias
+    RUN apt-get update && apt-get install -qq -y --no-install-recommends \
+        build-essential libpq-dev imagemagick curl
+
+    # Instalar o GNUPG
+    RUN apt-get install -y gnupg
+
+    # Instalar NodeJS v8
+    RUN curl -sL https://deb.nodesource.com/setup_8.x | bash - \
+        && apt-get install -y nodejs
+
+    # Instalar o Yarn
+    RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - \
+        && echo "deb https://dl.yarnpkg.com/debian/ stable main" | tee /etc/apt/sources.list.d/yarn.list \
+        && apt-get update && apt-get install -y yarn
+          
+    # Seta nosso path
+    ENV INSTALL_PATH /nosso_amigo_secreto
+    # Cria nosso diretório
+    RUN mkdir -p $INSTALL_PATH
+    # Seta o nosso path como o diretório principal
+    WORKDIR $INSTALL_PATH
+    # Copia o nosso Gemfile para dentro do container
+    COPY Gemfile ./
+    # Seta o path para as Gems
+    ENV BUNDLE_PATH /box
+    # Copia nosso código para dentro do container
+    COPY . .
+
+  3 - Crie um arquivo chamado docker-compose.yml na raiz do seu projeto e coloque nele:
+    version: '2'
+
+    services:
+      postgres:
+        image: 'postgres:9.5'
+        volumes:
+          - 'postgres:/var/lib/postgresql/data'
+
+      redis:
+        image: 'redis:3.2-alpine'
+        command: redis-server
+        ports:
+          - '6379:6379'
+        volumes:
+          - 'redis:/var/lib/redis/data'
+
+      jobs:
+        depends_on:
+          - 'postgres'
+          - 'redis'
+          - 'website'
+        build: .
+        command: bash start_jobs
+        volumes:
+          - '.:/nosso_amigo_secreto'
+        volumes_from:
+          - box
+
+      website:
+        depends_on:
+          - 'postgres'
+          - 'redis'
+        build: .
+        command: bash start
+        ports:
+          - '3000:3000'
+        volumes:
+          - '.:/nosso_amigo_secreto'
+        volumes_from:
+        - box
+
+      box:
+        image: busybox
+        volumes:
+          - /box
+
+    volumes:
+      redis:
+      postgres:
+      box:
+
+  4 - Agora crie um arquivo chamada start na raiz do seu projeto e coloque nele:
+    # Instala as Gems
+    bundle check || bundle install
+
+    # Roda nosso servidor
+    bundle exec puma -C config/puma.rb
+
+  5 - Agora crie um arquivo chamada start_jobs na raiz do seu projeto e coloque nele:
+    # Roda os jobs
+    bundle exec sidekiq -q emails
+
+  6 - Para instalar realizar o build do projeto rode:
+    docker-compose build
+
+-Setup do Nosso Projeto
+  1 - Coloque no seu Gemfile:
+    gem 'devise'
+    gem 'materialize-sass', '~> 0.99.0'
+    gem 'material_icons'
+    gem 'redis'
+    gem 'sidekiq', '5.2.7'
+
+    group :test do
+      gem "factory_bot_rails"
+      gem "ffaker"
+    end
+
+    group :development, :test do
+      gem 'rspec-rails', '~> 3.5'
+      # Call 'byebug' anywhere in the code to stop execution and get a debugger console
+      gem 'byebug', platform: :mri
+    end
+
+  2 - Instale as Gems rodando:
+    docker-compose run --rm website bundle install
+
+  3 - Agora vamos instalar o Materialize:
+    a - Altere o app/assets/stylesheets/application.css para app/assets/stylesheets/application.scss e coloque nele
+      @import "materialize";
+      @import "material_icons";
+    
+    b - Coloque no app/assets/javascripts/application.js:
+      //= require jquery
+      //= require jquery_ujs
+      //= require turbolinks
+      //= require materialize-sprockets
+      //= require_tree .
+
+  4 -  Vamos instalar o Rspec:
+    a - No console rode:
+      docker-compose run --rm website bundle exec rails generate rspec:install
+
+    b - Crie uma pasta chamada support dentro da pasta spec
+
+    c - Crie uma pasta chamada factories dentro de spec
+
+    d - Agora crie um arquivo chamado factory_bot.rb dentro da pasta support e coloque nele:
+      RSpec.configure do |config|
+        config.include FactoryBot::Syntax::Methods
+      end
+
+    e - Coloque no spec/rails_helper.rb:
+      Dir[Rails.root.join('spec/support/**/*.rb')].each { |f| require f }
+
+  5 - Coloque no config/database.yml o seguinte conteúdo:
+    default: &default
+      adapter: postgresql
+      encoding: unicode
+      pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+      host: postgres
+      user: postgres
+
+    development:
+      <<: *default
+      database: nosso_amigo_secreto_development
+
+    test:
+      <<: *default
+      database: nosso_amigo_secreto_test
+
+    production:
+      <<: *default
+      database: nosso_amigo_secreto_production
+
+  6 - Crie o banco de dados rodando:
+    docker-compose run --rm website bundle exec rake db:create
+
+  7 - Instalando o Devise:
+    a - Rode no console:
+      docker-compose run --rm website bundle exec rails generate devise:install
+
+    b - Agora rode:
+      docker-compose run --rm website bundle exec rails generate devise User
+
+    c - Na migration gerada adicione:
+      t.string :name, null: false
+
+    d - Agora rode as migrations:
+      docker-compose run --rm website bundle exec rake db:migrate
+
+    e - Adicione ao seu controller/application_controller.rb:
+      before_action :authenticate_user!
+
+  7 - Coloque no routes:
+    Rails.application.routes.draw do
+      devise_for :users, :controllers => { registrations: 'registrations' }
+    end
+
+-Customizando o Devise
+  1 - Alterando a aparência do Devise:
+    a - Rode no console:
+      docker-compose run --rm website bundle exec rails generate devise:views
+
+    b - Substitua o arquivo app/views/devise/session/new.html.erb por:
+      <div class="container">
+
+        <h2>Log in</h2>
+
+        <%= form_for(resource, as: resource_name, url: session_path(resource_name)) do |f| %>
+          <div class="field">
+            <%= f.label :email %><br />
+            <%= f.email_field :email, autofocus: true %>
+          </div>
+
+          <div class="field">
+            <%= f.label :password %><br />
+            <%= f.password_field :password, autocomplete: "off" %>
+          </div>
+
+          <% if devise_mapping.rememberable? -%>
+            <div class="field">
+              <%= f.check_box :remember_me %>
+              <%= f.label :remember_me %>
+            </div>
+          <% end -%>
+
+          <div class="actions">
+            <button class="btn waves-effect waves-light" type="submit" name="action">Submit
+              <i class="material-icons right">send</i>
+            </button>
+          </div>
+        <% end %>
+
+        <%= render "devise/shared/links" %>
+
+      </div>
+
+    c - Substitua o arquivo app/views/devise/registration/new.html.erb por:
+      <div class="container">
+
+        <h2>Sign up</h2>
+
+        <%= form_for(resource, as: resource_name, url: registration_path(resource_name)) do |f| %>
+          <%= devise_error_messages! %>
+
+          <div class="field">
+            <%= f.label :name %><br />
+            <%= f.text_field :name, autofocus: true %>
+          </div>
+
+          <div class="field">
+            <%= f.label :email %><br />
+            <%= f.email_field :email, autofocus: true %>
+          </div>
+
+          <div class="field">
+            <%= f.label :password %>
+            <% if @minimum_password_length %>
+            <em>(<%= @minimum_password_length %> characters minimum)</em>
+            <% end %><br />
+            <%= f.password_field :password, autocomplete: "off" %>
+          </div>
+
+          <div class="field">
+            <%= f.label :password_confirmation %><br />
+            <%= f.password_field :password_confirmation, autocomplete: "off" %>
+          </div>
+
+          <div class="actions">
+            <button class="btn waves-effect waves-light" type="submit" name="action">Sign Up
+              <i class="material-icons right">send</i>
+            </button>
+          </div>
+        <% end %>
+
+        <%= render "devise/shared/links" %>
+
+      </div>
+
+    d - Substitua o arquivo app/views/devise/registration/edit.html.erb por:
+      <div class="container">
+
+        <h2>Edit <%= resource_name.to_s.humanize %></h2>
+
+        <%= form_for(resource, as: resource_name, url: registration_path(resource_name), html: { method: :put }) do |f| %>
+          <%= devise_error_messages! %>
+
+          <div class="field">
+            <%= f.label :name %><br />
+            <%= f.text_field :name, autofocus: true %>
+          </div>
+
+          <div class="field">
+            <%= f.label :email %><br />
+            <%= f.email_field :email, autofocus: true %>
+          </div>
+
+          <% if devise_mapping.confirmable? && resource.pending_reconfirmation? %>
+            <div>Currently waiting confirmation for: <%= resource.unconfirmed_email %></div>
+          <% end %>
+
+          <div class="field">
+            <%= f.label :password %> <i>(leave blank if you don't want to change it)</i><br />
+            <%= f.password_field :password, autocomplete: "off" %>
+            <% if @minimum_password_length %>
+              <br />
+              <em><%= @minimum_password_length %> characters minimum</em>
+            <% end %>
+          </div>
+
+          <div class="field">
+            <%= f.label :password_confirmation %><br />
+            <%= f.password_field :password_confirmation, autocomplete: "off" %>
+          </div>
+
+          <div class="field">
+            <%= f.label :current_password %> <i>(we need your current password to confirm your changes)</i><br />
+            <%= f.password_field :current_password, autocomplete: "off" %>
+          </div>
+
+          <div class="actions">
+            <button class="btn waves-effect waves-light" type="submit" name="action">Update
+              <i class="material-icons right">send</i>
+            </button>
+          </div>
+        <% end %>
+
+        <h3>Cancel my account</h3>
+
+        <p>Unhappy? <%= button_to "Cancel my account", registration_path(resource_name), data: { confirm: "Are you sure?" }, method: :delete,  class: 'btn lighten-2 red waves-light' %></p>
+
+        <%= link_to "Back", :back %>
+
+      </div>
+
+    e - Agora crie um controller chamado registrations_controller.rb e coloque:
+      class RegistrationsController < Devise::RegistrationsController
+
+        private
+
+        def sign_up_params
+          params.require(:user).permit(:name, :email, :password, :password_confirmation)
+        end
+
+        def account_update_params
+          params.require(:user).permit(:name, :email, :password, :password_confirmation, :current_password)
+        end
+      end
+
+    f - Agora coloque no routes:
+      devise_for :users, :controllers => { registrations: 'registrations' }
+
+    g - Agora você pode replicar a técnica para as outras views
+
+-Setando o Sidekiq
+  1 - Crie um arquivo chamado app/config/initializers/sidekiq.rb e coloque nele:
+    Sidekiq.configure_server do |config|
+      config.redis = { url: 'redis://redis:6379/0' }
+    end
+
+    Sidekiq.configure_client do |config|
+      config.redis = { url: 'redis://redis:6379/0' }
+    end
+
+  2 - Coloque no routes:
+    require 'sidekiq/web'
+
+    Rails.application.routes.draw do
+      devise_for :users, :controllers => { registrations: 'registrations' }
+      mount Sidekiq::Web => '/sidekiq'
+    end
+
+-Setando o Mailcatcher
+  1 - Coloque no seu docker-compose.rb:
+    mailcatcher:
+      image: yappabe/mailcatcher
+      ports:
+        - 1025:1025
+        - 1080:1080
+
+  2 - Coloque no seu app/config/environments/development.rb:
+    config.action_mailer.default_url_options = { :host => 'localhost:3000' }
+    config.action_mailer.delivery_method = :smtp
+    config.action_mailer.smtp_settings = { :address => 'mailcatcher', :port => 1025 }
+
+  3 - Suba seu projeto e visite http://localhost:1080 no browser
+  
+-Planejamento dos Testes
+  Link para o planejamento de testes template: https://docs.google.com/document/d/18usLEDpxffmZhKa7aEwOstooy98qW6cU-FWCel289F4/edit?usp=sharing
+
+-Gerando os nossos Models
+  1 - Para gerar o Model Campaign rode:
+    docker-compose run --rm website bundle exec rails g model campaign title:string description:text user:references status:integer
+
+  2 - Para gerar o Model Member rode:
+    docker-compose run --rm website bundle exec rails g model member name:string email:string campaign:references open:boolean token:string
+
+  3 - Rode as migrations:
+    docker-compose run --rm website bundle exec rake db:migrate
+
+  Observação: Execute o comando abaixo para dar permissão aos aquivos antes de comitá-los:
+    sudo chown -R $USER:$USER .
+
+- Gerando os Controllers + Mailers
+  1 - Para gerar o Controller Pages rode:
+    docker-compose run --rm website bundle exec rails g controller Pages home
+
+  2 - Para gerar o Controller Campaigns rode:
+    docker-compose run --rm website bundle exec rails g controller Campaigns show index create update destroy raffle --skip-template-engine
+
+  3 - Para gerar o Controller Member rode:
+    docker-compose run --rm website bundle exec rails g controller Members create destroy update --skip-template-engine
+
+  4 - Para gerar o Mailer Raffles rode:
+    docker-compose run --rm website bundle exec rails g mailer RafflesMailer
+
+  Observação: Execute o comando abaixo para dar permissão aos aquivos antes de comitá-los:
+    sudo chown -R $USER:$USER .
+
+-Ajustando o Mailer + Incrementando o Model Campaign
+  1 - Apenas para ajustar o nome do mailer rode no console:
+    docker-compose run --rm website bundle exec rails d mailer RafflesMailer
+
+  2 - Agora rode:
+    docker-compose run --rm website bundle exec rails g mailer CampaignMailer raffle
+
+  3 - Rode no console:
+    docker-compose run --rm website bundle exec rails g migration add_event_date_to_campaign event_date:datetime event_hour:string location:string
+
+  4 - Rode as migrations:
+    docker-compose run --rm website bundle exec rails db:migrate
+
+  Observação: Execute o comando abaixo para dar permissão aos aquivos antes de comitá-los:
+    sudo chown -R $USER:$USER .
+
+-Setando as nossas Rotas
+  1 - Coloque no routes:
+    require 'sidekiq/web'
+
+    Rails.application.routes.draw do
+      devise_for :users, :controllers => { registrations: 'registrations' }
+      mount Sidekiq::Web => '/sidekiq'
+
+      root to: 'pages#home'
+      resources :campaigns, except: [:new] do
+        post 'raffle', on: :member
+        # post 'raffle', on: :collection
+      end
+      get 'members/:token/opened', to: 'members#opened'
+      resources :members, only: [:create, :destroy, :update]
+    end
+
+-Criando o Service Raffle + Preparando os testes
+  1 - Crie uma pasta chamada services em app
+
+  2 - Crie um arquivo dentro chamado raffle_service.rb
+
+  3 - Crie uma pasta chamada services em spec
+
+  4 - Crie um arquivo dentro chamado raffle_service_spec.rb
+
+  5 - Vamos adicionar o Devise ao Rspec pra facilitar o Login do nosso usuário, em spec/rails_helper.rb adicione:
+    RSpec.configure do |config|
+      config.include Devise::Test::ControllerHelpers, type: :controller
+    end
+
+-Entrando em modo TDD + Criando nossas Factories
+  1 - Na pasta spec/factories crie um arquivo chamado user.rb e coloque nele:
+    FactoryBot.define do
+      factory :user do
+        name         { FFaker::Lorem.word }
+        email        { FFaker::Internet.email }
+        password     {'secret123'}
+      end
+    end
+
+  2 - Na pasta spec/factories crie um arquivo chamado campaign.rb e coloque nele:
+    FactoryBot.define do
+      factory :campaign do
+        title         { FFaker::Lorem.word }
+        description   { FFaker::Lorem.sentence }
+        user
+      end
+    end
+
+  3 - Na pasta spec/factories crie um arquivo chamado member.rb e coloque nele:
+    FactoryBot.define do
+      factory :member do
+        name         { FFaker::Lorem.word }
+        email        { FFaker::Internet.email }
+        campaign
+      end
+    end
+
+-Testes de controller (Campaign)
+  1 - No controller Campaign do spec coloque:
+    require 'rails_helper'
+
+    RSpec.describe CampaignsController, type: :controller do
+      include Devise::Test::ControllerHelpers
+
+      before(:each) do
+        # request.env["HTTP_ACCEPT"] = 'application/json'
+
+        @request.env["devise.mapping"] = Devise.mappings[:user]
+        @current_user = FactoryBot.create(:user)
+        sign_in @current_user
+      end
+
+      describe "GET #index" do
+        it "returns http success" do
+          get :index
+          expect(response).to have_http_status(:success)
+        end
+      end
+
+      describe "GET #show" do
+
+        context "campaing exists" do
+          context "User is the owner of the campaing" do
+            it "Returns success" do
+              campaign = create(:campaign, user: @current_user)
+              get :show, params: {id: campaign.id}
+              expect(response).to have_http_status(:success)
+            end
+          end
+
+          context "User is not the owner of the campaign" do
+            it "Redirects to root" do
+              campaign = create(:campaign)
+              get :show, params: {id: campaign.id}
+
+              expect(response).to redirect_to('/')
+            end
+          end
+        end
+
+        context "campaign don't exists" do
+          it "Redirects to root" do
+            get :show, params: {id: 0}
+            expect(response).to redirect_to('/')
+          end
+        end
+      end
+
+
+      describe "POST #create" do
+        before(:each) do
+          @campaign_attributes = attributes_for(:campaign, user: @current_user)
+          post :create, params: {campaign: @campaign_attributes}
+        end
+
+        it "Redirect to new campaign" do
+          expect(response).to have_http_status(302)
+          expect(response).to redirect_to("/campaigns/#{Campaign.last.id}")
+        end
+
+        it "Create campaign with right attributes" do
+          expect(Campaign.last.user).to eql(@current_user)
+          expect(Campaign.last.title).to eql(@campaign_attributes[:title])
+          expect(Campaign.last.description).to eql(@campaign_attributes[:description])
+          expect(Campaign.last.status).to eql('pending')
+        end
+
+        it "Create campaign with owner associated as a member" do
+          expect(Campaign.last.members.last.name).to eql(@current_user.name)
+          expect(Campaign.last.members.last.email).to eql(@current_user.email)
+        end
+      end
+
+      describe "DELETE #destroy" do
+        before(:each) do
+          request.env["HTTP_ACCEPT"] = 'application/json'
+        end
+
+        context "User is the Campaign Owner" do
+          it "returns http success" do
+            campaign = create(:campaign, user: @current_user)
+            delete :destroy, params: {id: campaign.id}
+            expect(response).to have_http_status(:success)
+          end
+        end
+
+        context "User isn't the Campaign Owner" do
+          it "returns http forbidden" do
+            campaign = create(:campaign)
+            delete :destroy, params: {id: campaign.id}
+            expect(response).to have_http_status(:forbidden)
+          end
+        end
+      end
+
+      describe "PUT #update" do
+        before(:each) do
+          @new_campaign_attributes = attributes_for(:campaign)
+          request.env["HTTP_ACCEPT"] = 'application/json'
+        end
+
+        context "User is the Campaign Owner" do
+          before(:each) do
+            campaign = create(:campaign, user: @current_user)
+            put :update, params: {id: campaign.id, campaign: @new_campaign_attributes}
+          end
+
+          it "returns http success" do
+            expect(response).to have_http_status(:success)
+          end
+
+          it "Campaign have the new attributes" do
+            expect(Campaign.last.title).to eq(@new_campaign_attributes[:title])
+            expect(Campaign.last.description).to eq(@new_campaign_attributes[:description])
+          end
+        end
+
+        context "User isn't the Campaign Owner" do
+          it "returns http forbidden" do
+            campaign = create(:campaign)
+            put :update, params: {id: campaign.id, campaign: @new_campaign_attributes}
+            expect(response).to have_http_status(:forbidden)
+          end
+        end
+      end
+
+      describe "GET #raffle" do
+        before(:each) do
+          request.env["HTTP_ACCEPT"] = 'application/json'
+        end
+
+        context "User is the Campaign Owner" do
+          before(:each) do
+            @campaign = create(:campaign, user: @current_user)
+          end
+
+          context "Has more than two members" do
+            before(:each) do
+              create(:member, campaign: @campaign)
+              create(:member, campaign: @campaign)
+              create(:member, campaign: @campaign)
+              post :raffle, params: {id: @campaign.id}
+            end
+
+            it "returns http success" do
+              expect(response).to have_http_status(:success)
+            end
+          end
+
+          context "No more than two members" do
+            before(:each) do
+              create(:member, campaign: @campaign)
+              post :raffle, params: {id: @campaign.id}
+            end
+
+            it "returns http success" do
+              expect(response).to have_http_status(:unprocessable_entity)
+            end
+          end
+        end
+
+        context "User isn't the Campaign Owner" do
+          before(:each) do
+            @campaign = create(:campaign)
+            post :raffle, params: {id: @campaign.id}
+          end
+
+          it "returns http forbidden" do
+            expect(response).to have_http_status(:forbidden)
+          end
+        end
+      end
+    end
+
+  2 - Crie uma view vazia em app/views/campaigns/ com o nome de index.html.erb
+
+  3 - Crie uma view vazia em app/views/campaigns/ com o nome de show.html.erb
+
+-Criando os testes de Mailer
+  1 - No teste de Mailer Campaign coloque:
+    require "rails_helper"
+
+    RSpec.describe CampaignMailer, type: :mailer do
+      describe "raffle" do
+
+        before do
+          @campaign = create(:campaign)
+          @member   = create(:member, campaign: @campaign)
+          @friend = create(:member, campaign: @campaign)
+          @mail = CampaignMailer.raffle(@campaign, @member, @friend)
+        end
+
+
+        it "renders the headers" do
+          expect(@mail.subject).to eq("Nosso Amigo Secreto: #{@campaign.title}")
+          expect(@mail.to).to eq([@member.email])
+        end
+
+        it "body have member name" do
+          expect(@mail.body.encoded).to match(@member.name)
+        end
+
+        it "body have campaign creator name" do
+          expect(@mail.body.encoded).to match(@campaign.user.name)
+        end
+
+        # it "body have friend name" do
+        #   expect(@mail.body.encoded).to match(@friend.name)
+        # end
+
+        it "body have member link to set open" do
+          expect(@mail.body.encoded).to match("/members/#{@member.token}/opened")
+        end
+      end
+
+    end
+
+-Testes do Service Raffle
+  1 - Coloque no arquivo de testes do service Raffle:
+    require 'rails_helper'
+
+    describe RaffleService do
+
+      before :each do
+        @campaign = create(:campaign, status: :pending)
+      end
+
+      describe '#call' do
+        context "when has more then two members" do
+          before(:each) do
+            create(:member, campaign: @campaign)
+            create(:member, campaign: @campaign)
+            create(:member, campaign: @campaign)
+            @campaign.reload
+
+            @results = RaffleService.new(@campaign).call
+          end
+
+          it "results is a hash" do
+            expect(@results.class).to eq(Hash)
+          end
+
+          it "all members are in results as a member" do
+            result_members = @results.map {|r| r.first}
+            expect(result_members.sort).to eq(@campaign.members.sort)
+          end
+
+          it "all member are in results as a friend" do
+            result_friends = @results.map {|r| r.last}
+            expect(result_friends.sort).to eq(@campaign.members.sort)
+          end
+
+          it "a member don't get yourself" do
+            @results.each do |r|
+              expect(r.first).not_to eq(r.last)
+            end
+          end
+
+          it "a member x don't get a member y that get the member x" do
+            # Desafio
+          end
+
+        end
+
+        context "when don't has more then two members" do
+          before(:each) do
+            create(:member, campaign: @campaign)
+            @campaign.reload
+
+            @response = RaffleService.new(@campaign).call
+          end
+
+          it "return false" do
+            expect(@response).to eql(false)
+          end
+        end
+      end
+    end
+
+-Setando nossos Models
+  1 - No model User coloque:
+    class User < ApplicationRecord
+      devise :database_authenticatable, :registerable,
+            :recoverable, :rememberable, :trackable, :validatable
+
+      has_many :campaigns, dependent: :destroy
+    end
+
+  2 - No model Campaign coloque:
+    class Campaign < ApplicationRecord
+      belongs_to :user
+      has_many :members, dependent: :destroy
+      before_create :set_status
+      before_create :set_member
+      enum status: [:pending, :finished]
+      validates :title, :description, :user, :status, presence: true
+
+      def set_status
+        self.status = :pending
+      end
+
+      def set_member
+        self.members << Member.create(name: self.user.name, email: self.user.email)
+      end
+    end
+
+  3 - No model Member coloque:
+    class Member < ApplicationRecord
+      belongs_to :campaign
+      after_save :set_campaign_pending
+      validates :name, :email, :campaign, presence: true
+
+      def set_pixel
+        self.open = false
+        self.token = loop do
+          random_token = SecureRandom.urlsafe_base64(nil, false)
+          break random_token unless Member.exists?(token: random_token)
+        end
+        self.save!
+      end
+
+      protected
+
+      def set_campaign_pending
+        self.campaign.update(status: :pending)
+      end
+    end
+
+-Criando os Mailers
+  1 -  No seu Mailer Campaign coloque:
+    class CampaignMailer < ApplicationMailer
+
+      def raffle(campaign, member, friend)
+        @campaign = campaign
+        @member = member
+        @friend = friend
+        mail to: @member.email, subject: "Nosso Amigo Secreto: #{@campaign.title}"
+      end
+    end
+
+-Criação do Service para realizar o sorteio
+  1 - Coloque no service Raffle:
+    class RaffleService
+      def initialize(campaign)
+        @campaign = campaign
+      end
+
+      def call
+        return false if @campaign.members.count < 3
+
+        results = {}
+        members_list = @campaign.members
+        friends_list = @campaign.members
+        i = 0
+        while(members_list.count != i)
+          m = members_list[i]
+          i += 1
+
+          loop do
+            friend = friends_list.sample
+
+            if friends_list.count == 1 and friend == m
+              results = {}
+              members_list = @campaign.members
+              friends_list = @campaign.members
+              i = 0
+              break
+            elsif friend != m and results[friend] != m
+              results[m] = friend
+              friends_list -= [friend]
+              break
+            end
+          end
+        end
+        results
+      end
+    end
+
+  2 - Verificar se o teste do raffle service está ok:
+    docker-compose run --rm website bundle exec rspec spec/services/raffle_service_spec.rb
+
+-Criando o nosso Job
+  1 - Adicione ao config/application.rb:
+    config.active_job.queue_adapter = :sidekiq
+
+  2 - Gere o Job rodando:
+    docker-compose run --rm website bundle exec rails generate job campaign_raffle
+
+  3 - Coloque no Job gerado:
+    class CampaignRaffleJob < ApplicationJob
+      queue_as :emails
+
+      def perform(campaign)
+        results = RaffleService.new(campaign).call
+
+        campaign.members.each {|m| m.set_pixel}
+        results.each do |r|
+          CampaignMailer.raffle(campaign, r.first, r.last).deliver_now
+        end
+        campaign.update(status: :finished)
+
+
+        #if results == false
+          # Send mail to owner of campaign (desafio)
+        #end
+      end
+    end
+
+-Setando o retorno do 404
+  1 - No controller Application, retire o seguinte código:
+    before_action :authenticate_user!
+
+  2 - Agora adicione a ele:
+    rescue_from ActiveRecord::RecordNotFound, :with => :render_404
+
+    def render_404
+      redirect_to main_app.root_url
+    end
+
+-Criação dos controllers (Campaign)
+  1 - No controller Campaign coloque:
+    class CampaignsController < ApplicationController
+      before_action :authenticate_user!
+
+      before_action :set_campaign, only: [:show, :destroy, :update, :raffle]
+      before_action :is_owner?, only: [:show, :destroy, :update, :raffle]
+
+      def show
+      end
+
+      def index
+        @campaigns = current_user.campaigns
+      end
+
+      def create
+        @campaign = Campaign.new(campaign_params)
+
+        respond_to do |format|
+          if @campaign.save
+            format.html { redirect_to "/campaigns/#{@campaign.id}" }
+          else
+            format.html { redirect_to main_app.root_url, notice: @campaign.errors }
+          end
+        end
+      end
+
+      def update
+        respond_to do |format|
+          if @campaign.update(campaign_params)
+            format.json { render json: true }
+          else
+            format.json { render json: @campaign.errors, status: :unprocessable_entity }
+          end
+        end
+      end
+
+      def destroy
+        @campaign.destroy
+
+        respond_to do |format|
+          format.json { render json: true }
+        end
+      end
+
+      def raffle
+        respond_to do |format|
+          if @campaign.status != "pending"
+            format.json { render json: 'Já foi sorteada', status: :unprocessable_entity }
+          elsif @campaign.members.count < 3
+            format.json { render json: 'A campanha precisa de pelo menos 3 pessoas', status: :unprocessable_entity }
+          else
+            CampaignRaffleJob.perform_later @campaign
+            format.json { render json: true }
+          end
+        end
+      end
+
+      private
+
+      def set_campaign
+        @campaign = Campaign.find(params[:id])
+      end
+
+      def campaign_params
+        params.require(:campaign).permit(:title, :description, :event_date, :event_hour, :location).merge(user: current_user)
+      end
+
+      def is_owner?
+        unless current_user == @campaign.user
+          respond_to do |format|
+            format.json { render json: false, status: :forbidden }
+            format.html { redirect_to main_app.root_url }
+          end
+        end
+      end
+    end
+
+-Ajustando os métodos do campaign
+  1 - Altere o model campaign colocando:
+    class Campaign < ApplicationRecord
+      after_validation :set_member, on: :create
+      before_validation :set_status, on: :create
+
+      belongs_to :user
+      has_many :members, dependent: :destroy
+      enum status: [:pending, :finished]
+      validates :title, :description, :user, :status, presence: true
+
+      private
+
+      def set_status
+        self.status = :pending
+      end
+
+      def set_member
+        self.members << Member.create(name: self.user.name, email: self.user.email)
+      end
+    end
+
+  2 - Altere o controller campaign colocando:
+    class CampaignsController < ApplicationController
+      before_action :authenticate_user!
+
+      before_action :set_campaign, only: [:show, :destroy, :update, :raffle]
+      before_action :is_owner?, only: [:show, :destroy, :update, :raffle]
+
+      def show
+      end
+
+      def index
+        @campaigns = current_user.campaigns
+      end
+
+      def create
+        @campaign = Campaign.new(user: current_user, title: 'Nova Campanha', description: 'Descreva sua campanha...')
+
+        respond_to do |format|
+          if @campaign.save
+            format.html { redirect_to "/campaigns/#{@campaign.id}" }
+          else
+            format.html { redirect_to main_app.root_url, notice: @campaign.errors }
+          end
+        end
+      end
+
+      def update
+        respond_to do |format|
+          if @campaign.update(campaign_params)
+            format.json { render json: true }
+          else
+            format.json { render json: @campaign.errors, status: :unprocessable_entity }
+          end
+        end
+      end
+
+      def destroy
+        @campaign.destroy
+
+        respond_to do |format|
+          format.json { render json: true }
+        end
+      end
+
+      def raffle
+        respond_to do |format|
+          if @campaign.status != "pending"
+            format.json { render json: 'Já foi sorteada', status: :unprocessable_entity }
+          elsif @campaign.members.count < 3
+            format.json { render json: 'A campanha precisa de pelo menos 3 pessoas', status: :unprocessable_entity }
+          else
+            CampaignRaffleJob.perform_later @campaign
+            format.json { render json: true }
+          end
+        end
+      end
+
+      private
+
+      def set_campaign
+        @campaign = Campaign.find(params[:id])
+      end
+
+      def campaign_params
+        params.require(:campaign).permit(:title, :description, :event_date, :event_hour, :location).merge(user: current_user)
+      end
+
+      def is_owner?
+        unless current_user == @campaign.user
+          respond_to do |format|
+            format.json { render json: false, status: :forbidden }
+            format.html { redirect_to main_app.root_url }
+          end
+        end
+      end
+    end
+
+  3 - Altere o teste do controller campaign colocando:
+    require 'rails_helper'
+
+    RSpec.describe CampaignsController, type: :controller do
+      include Devise::Test::ControllerHelpers
+
+      before(:each) do
+        @request.env["devise.mapping"] = Devise.mappings[:user]
+        @current_user = FactoryBot.create(:user)
+        sign_in @current_user
+      end
+
+      describe "GET #index" do
+        it "returns http success" do
+          get :index
+          expect(response).to have_http_status(:success)
+        end
+      end
+
+      describe "GET #show" do
+
+        context "campaing exists" do
+          context "User is the owner of the campaing" do
+            it "Returns success" do
+              campaign = create(:campaign, user: @current_user)
+              get :show, params: {id: campaign.id}
+              expect(response).to have_http_status(:success)
+            end
+          end
+
+          context "User is not the owner of the campaign" do
+            it "Redirects to root" do
+              campaign = create(:campaign)
+              get :show, params: {id: campaign.id}
+
+              expect(response).to redirect_to('/')
+            end
+          end
+        end
+
+        context "campaign don't exists" do
+          it "Redirects to root" do
+            get :show, params: {id: 0}
+            expect(response).to redirect_to('/')
+          end
+        end
+      end
+
+
+      describe "POST #create" do
+        before(:each) do
+          @campaign_attributes = attributes_for(:campaign, user: @current_user)
+          post :create, params: {campaign: @campaign_attributes}
+        end
+
+        it "Redirect to new campaign" do
+          expect(response).to have_http_status(302)
+          expect(response).to redirect_to("/campaigns/#{Campaign.last.id}")
+        end
+
+        it "Create campaign with right attributes" do
+          expect(Campaign.last.user).to eql(@current_user)
+          expect(Campaign.last.title).to eql("Nova Campanha")
+          expect(Campaign.last.description).to eql("Descreva sua campanha...")
+          expect(Campaign.last.status).to eql('pending')
+        end
+
+        it "Create campaign with owner associated as a member" do
+          expect(Campaign.last.members.last.name).to eql(@current_user.name)
+          expect(Campaign.last.members.last.email).to eql(@current_user.email)
+        end
+      end
+
+      describe "DELETE #destroy" do
+        before(:each) do
+          request.env["HTTP_ACCEPT"] = 'application/json'
+        end
+
+        context "User is the Campaign Owner" do
+          it "returns http success" do
+            campaign = create(:campaign, user: @current_user)
+            delete :destroy, params: {id: campaign.id}
+            expect(response).to have_http_status(:success)
+          end
+        end
+
+        context "User isn't the Campaign Owner" do
+          it "returns http forbidden" do
+            campaign = create(:campaign)
+            delete :destroy, params: {id: campaign.id}
+            expect(response).to have_http_status(:forbidden)
+          end
+        end
+      end
+
+      describe "PUT #update" do
+        before(:each) do
+          @new_campaign_attributes = attributes_for(:campaign)
+          request.env["HTTP_ACCEPT"] = 'application/json'
+        end
+
+        context "User is the Campaign Owner" do
+          before(:each) do
+            campaign = create(:campaign, user: @current_user)
+            put :update, params: {id: campaign.id, campaign: @new_campaign_attributes}
+          end
+
+          it "returns http success" do
+            expect(response).to have_http_status(:success)
+          end
+
+          it "Campaign have the new attributes" do
+            expect(Campaign.last.title).to eq(@new_campaign_attributes[:title])
+            expect(Campaign.last.description).to eq(@new_campaign_attributes[:description])
+          end
+        end
+
+        context "User isn't the Campaign Owner" do
+          it "returns http forbidden" do
+            campaign = create(:campaign)
+            put :update, params: {id: campaign.id, campaign: @new_campaign_attributes}
+            expect(response).to have_http_status(:forbidden)
+          end
+        end
+      end
+
+      describe "GET #raffle" do
+        before(:each) do
+          request.env["HTTP_ACCEPT"] = 'application/json'
+        end
+
+        context "User is the Campaign Owner" do
+          before(:each) do
+            @campaign = create(:campaign, user: @current_user)
+          end
+
+          context "Has more than two members" do
+            before(:each) do
+              create(:member, campaign: @campaign)
+              create(:member, campaign: @campaign)
+              create(:member, campaign: @campaign)
+              post :raffle, params: {id: @campaign.id}
+            end
+
+            it "returns http success" do
+              expect(response).to have_http_status(:success)
+            end
+          end
+
+          context "No more than two members" do
+            before(:each) do
+              create(:member, campaign: @campaign)
+              post :raffle, params: {id: @campaign.id}
+            end
+
+            it "returns http success" do
+              expect(response).to have_http_status(:unprocessable_entity)
+            end
+          end
+        end
+
+        context "User isn't the Campaign Owner" do
+          before(:each) do
+            @campaign = create(:campaign)
+            post :raffle, params: {id: @campaign.id}
+          end
+
+          it "returns http forbidden" do
+            expect(response).to have_http_status(:forbidden)
+          end
+        end
+      end
+    end
+
+  4 - Atualize a factory campaign colocando:
+    FactoryBot.define do
+      factory :campaign do
+        title         { FFaker::Lorem.word }
+        description   { FFaker::Lorem.sentence }
+        user
+        status        { :pending }
+        location        { "#{FFaker::Address.city}, #{FFaker::Address.street_address}"}
+        event_date    { FFaker::Time.date }
+        event_hour    { rand(24).to_s }
+      end
+    end
+
+  5 - Verifique se suas views (index e show) do campaign foram criados
+
+  6 - Rode os testes:
+    docker-compose run --rm website bundle exec rspec spec/controllers/campaigns_controller_spec.rb
+
+-Criação dos controllers (Member)
+  1 - No controller Member coloque:
+    class MembersController < ApplicationController
+      before_action :authenticate_user!, except: [:opened]
+
+      before_action :set_member, only: [:show, :destroy, :update]
+      before_action :is_owner?, only: [:destroy, :update]
+      before_action :set_member_by_token, only: [:opened]
+
+      def create
+        @member = Member.new(member_params)
+
+        respond_to do |format|
+          if @member.save
+            format.json { render json: true }
+          else
+            format.json { render json: @member.errors, status: :unprocessable_entity }
+          end
+        end
+      end
+
+      def destroy
+        @member.destroy
+
+        respond_to do |format|
+          format.json { render json: true }
+        end
+      end
+
+      def update
+        respond_to do |format|
+          if @member.update(member_params)
+            format.json { render json: true }
+          else
+            format.json { render json: @member.errors, status: :unprocessable_entity }
+          end
+        end
+      end
+
+      def opened
+        @member.update(open: true)
+        gif = Base64.decode64("R0lGODlhAQABAPAAAAAAAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==")
+        render text: gif, type: 'image/gif'
+      end
+
+      private
+
+      def set_member
+        @member = Member.find(params[:id])
+      end
+
+      def set_member_by_token
+        @member = Member.find_by!(token: params[:token])
+      end
+
+      def member_params
+        params.require(:member).permit(:name, :email, :campaign_id)
+      end
+
+      def is_owner?
+        unless current_user == @member.campaign.user
+          respond_to do |format|
+            format.json { render json: false, status: :forbidden }
+          end
+        end
+      end
+    end
+
+  2 - Rode os testes:
+    docker-compose run --rm website bundle exec rspec spec/controllers/members_controller_spec.rb
+
+-Criação das views (Partial Header)
+  1 - Crie uma pasta chamada shared em app/views
+
+  2 - Crie um arquivo chamado _navbar.html.erb na pasta e coloque nele:
+    <div class="navbar-fixed">
+      <nav class="top-nav">
+        <div class="nav-wrapper col s12">
+          <a href="/" class="brand-logo">
+            <img src="/assets/logo.png" alt="" class="logo-img">
+            <span class="logo-title">
+              Nosso Amigo Secreto
+            </span>
+          </a>
+
+          <a href="#" data-activates="side-bar" class="button-collapse"><i class="material-icons">menu</i></a>
+
+          <ul class="right hide-on-med-and-down">
+            <% if current_user %>
+              <li><a href="/campaigns">Campanhas</a></li>
+              <li><a href="/users/edit">Perfil</a></li>
+              <li>  <%= link_to('Sair', destroy_user_session_path, :method => :delete) %></li>
+            <% else %>
+              <li><a href="/users/sign_in">Entrar</a></li>
+              <li><a href="/users/sign_up">Criar Conta</a></li>
+            <% end %>
+          </ul>
+        </div>
+      </nav>
+    </div>
+
+
+    <ul class="side-nav" id="side-bar">
+      <% if current_user %>
+        <li><a href="/campaigns">Campanhas</a></li>
+        <li><a href="/users/edit">Perfil</a></li>
+        <li><div class="divider"></div></li>
+        <li>  <%= link_to('Sair', destroy_user_session_path, :method => :delete) %></li>
+      <% else %>
+        <li><a href="/users/sign_in">Entrar</a></li>
+        <li><div class="divider"></div></li>
+        <li><a href="/users/sign_up">Criar Conta</a></li>
+        <li><div class="divider"></div></li>
+      <% end %>
+    </ul>
+
+  3 - Coloque em app/views/layouts/application.html.erb:
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>NossoAmigoSecreto</title>
+        <%= csrf_meta_tags %>
+
+        <%= stylesheet_link_tag    'application', media: 'all', 'data-turbolinks-track': 'reload' %>
+        <%= javascript_include_tag 'application', 'data-turbolinks-track': 'reload' %>
+        <%= favicon_link_tag %>
+      </head>
+
+      <body>
+
+        <header>
+          <%= render "shared/navbar" %>
+        </header>
+
+        <main>
+          <div class="container">
+            <%= yield %>
+          </div>
+        </main>
+
+      </body>
+    </html>
+
+  4 - Crie uma pasta chamada shared em app/assets/stylesheets/
+
+  5 - Crie um arquivo chamador _navbar.scss na pasta e coloque nele:
+    nav{
+      background-color: #e86252;
+
+      .brand-logo{
+        margin-left: 10px;
+        .logo-title{
+          font-size: 20px;
+        }
+      }
+    }
+
+  6 - Coloque em app/assets/stylesheets/application.scss:
+    @import "materialize";
+    @import "material_icons";
+    @import "shared/_navbar";
+
+  7 - Crie uma pasta chamada shared em app/assets/javascript/
+
+  8 - Crie um arquivo chamador navbar.coffee na pasta e coloque nele:
+    $(document).on 'turbolinks:load', ->
+      $('.button-collapse').sideNav()
+      return
+
+  9 - Baixa as imagens do link a baixo e coloque elas na pasta app/assets/images:
+    http://165.227.206.32/wp-content/uploads/2017/07/nosso_amigo_secreto-1.zip
+
+-Criação das views (Partial Footer)
+  1 - Crie um arquivo chamado _footer.html.erb na pasta app/views/shared e coloque nele:
+    <div class="page-footer">
+      <div class="container">
+        <div class="copyright">
+          <b>Criado com
+            <i class="material-icons copyright-icon">favorite</i>
+            no
+            <a class="copyright-link" href="http://onebitcode.com/bootcamp-one-bit-code/"> Bootcamp OneBitCode</a>
+          </b>
+        </div>
+      </div>
+    </div>
+
+  2 - Coloque em app/views/layouts/application.html.erb:
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>NossoAmigoSecreto</title>
+        <%= csrf_meta_tags %>
+
+        <%= stylesheet_link_tag    'application', media: 'all', 'data-turbolinks-track': 'reload' %>
+        <%= javascript_include_tag 'application', 'data-turbolinks-track': 'reload' %>
+        <%= favicon_link_tag %>
+      </head>
+
+      <body>
+
+        <header>
+          <%= render "shared/navbar" %>
+        </header>
+
+        <main>
+          <div class="container">
+            <%= yield %>
+          </div>
+        </main>
+
+        <footer>
+          <%= render "shared/footer" %>
+        </footer>
+
+      </body>
+    </html>
+
+  3 - Crie um arquivo chamado _footer.scss na pasta app/assets/stylesheets/ e coloque nele:
+    body {
+      display: flex;
+      min-height: 100vh;
+      flex-direction: column;
+      main {
+        flex: 1 0 auto;
+      }
+
+
+      footer{
+        .page-footer{
+          background-color: #616161;
+          .copyright{
+            padding-bottom: 10px;
+            color: white;
+            .copyright-link{
+              color: white;
+              cursor: pointer;
+            }
+            .copyright-icon{
+              font-size: 12px;
+              color: #e86252;
+            }
+          }
+        }
+      }
+    }
+
+  4 - Coloque em app/assets/stylesheets/application.scss:
+    @import "materialize";
+    @import "material_icons";
+    @import "shared/_navbar";
+    @import "shared/_footer";
+
+-Criação das views (Home)
+  1 - No arquivo chamado home.html na pasta app/views/pages coloque:
+    <div class="row home">
+      <div class="center">
+        <h4 class="title">Surpreenda no Amigo Secreto</h4>
+        <h5 class="subtitle">Crie a sua brincadeira apenas com o nome e email dos seus amigos</h5>
+        <h5 class="subtitle2">Rápido, fácil e garantido <i class="material-icons home-icon">favorite</i></h5>
+
+        <%= form_tag("/campaigns", method: "post") do %>
+          <%= submit_tag("Criar Agora", class: "waves-effect waves-light btn home-button") %>
+        <% end %>
+      </div>
+    </div>
+
+  2 - Coloque no arquivo pages.scss:
+    .home{
+      margin-top: 15%;
+      .home-icon{
+        color: #e86252;
+        font-size: 24px;
+      }
+      .home-button{
+        background-color: #e86252
+      }
+      .subtitle{
+        color: #aaa;
+        margin-bottom: 30px;
+      }
+      .subtitle2{
+        color: #e86252;
+        margin-bottom: 40px;
+      }
+    }
+
+  3 - Coloque no arquivo app/assets/stylesheets/application.scss:
+    @import "materialize";
+    @import "material_icons";
+    @import "shared/_navbar";
+    @import "shared/_footer";
+    @import "pages";
+
+  
+  Observação: Caso ao tentar logar ou criar um usuário você receba o seguinte erro abaixo. Siga os passos para resolvê-lo.
+    undefined method `current_sign_in_at' for #<User:0x00007fe3c15440c8>
+    
+    Resolução:
+      No arquivo db/migrate/20191121175414_devise_create_users.rb descomente as linhas abaixo:
+        ## Trackable
+        t.integer  :sign_in_count, default: 0, null: false
+        t.datetime :current_sign_in_at
+        t.datetime :last_sign_in_at
+        t.inet     :current_sign_in_ip
+        t.inet     :last_sign_in_ip
+      
+      Excecute um drop no banco:
+        docker-compose run --rm website bundle exec rails db:drop
+
+      Execute um create do banco:
+        docker-compose run --rm website bundle exec rails db:crate
+
+      Execute um migrate no banco:
+        docker-compose run --rm website bundle exec rails db:migrate
+
+-Criação das views (Campaign Index)
+  1 - No arquivo index.html.erb na pasta app/views/campaigns coloque:
+    <div class="row campaigns">
+      <div class="col s8 offset-s2">
+        <p class="title">Campanhas</p>
+      </div>
+
+      <div class="row cards">
+        <div class="col s8 offset-s2">
+
+          <% @campaigns.each do |c| %>
+            <div class="card horizontal">
+              <div class="card-content col s12">
+                <div class="col s12 l8 m12">
+                  <div class="row">
+                    <div class="col s8 m9 l9">
+                      <p class="title"><%= truncate(c.title, length: 30, omission: '...') %></p>
+                    </div>
+                    <div class="col s4 m2 l2">
+                      <p class="data"><%= (c.event_date)? c.event_date.strftime("%d/%m/%y") : '' %></p>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col s12 m12 l12">
+                      <p class="subtitle"><%= truncate(c.description, length: 70, omission: '...') %></p>
+                    </div>
+                  </div>
+                  <div class="row status">
+                    <div class="col s6 m6 l4 visibility">
+                      <i class="material-icons visibility-icon">visibility</i>
+                      <span class="visibility-text">Vistos <%= open_number(c) %></span>
+                    </div>
+                    <div class="col s2 m2 offset-s4 l2 offset-l6">
+                      <span class="new badge <%= (c.status == "pending")? 'orange' : '' %>"> <%= (c.status == "pending")? 'Pendente' : 'Sorteado' %> </span>
+                    </div>
+                  </div>
+                </div>
+                <div class="col l4 s12 m12 center enter">
+                  <div class="row">
+                    <div class="col s12">
+                      <a class="waves-effect waves-light btn grey" href=<%= "/campaigns/#{c.id}" %>>Entrar</a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          <% end %>
+
+        </div>
+      </div>
+
+      <div class="fixed-action-btn campaigns-btn">
+        <%= form_tag("/campaigns", method: "post") do %>
+          <button class="btn-floating btn-large red pulse" type="submit">
+            <i class="large material-icons">add</i>
+          </button>
+        <% end %>
+      </div>
+    </div>
+
+  2 - No arquivo campaings.scss coloque:
+    .campaigns{
+      margin-top: 4%;
+
+      .title{
+        color: #e86252;
+        font-size: 22px;
+        margin-bottom: 5px;
+      }
+
+      .campaigns-btn{
+        margin-bottom: 40px;
+      }
+
+      .cards{
+        .card{
+          .title{
+            font-size: 20px;
+          }
+          .data{
+            color: #aaa;
+          }
+          .subtitle{
+            margin-top: -18px;
+            margin-bottom: -6px;
+            color: #aaa;
+          }
+          .status{
+            margin-bottom: -8px;
+            .visibility-icon{
+              font-size: 16px;
+            }
+            .visibility-text{
+              font-size: 14px;
+            }
+          }
+          .enter{
+            .btn{
+              margin-top: 15%;
+              height: 45px;
+              padding-top: 5px;
+            }
+          }
+        }
+      }
+
+    }
+
+  3 - Coloque no arquivo app/assets/stylesheets/application.scss:
+    @import "materialize";
+    @import "material_icons";
+    @import "shared/_navbar";
+    @import "shared/_footer";
+    @import "pages";
+    @import "campaigns";
+
+  4 - No Helper Campaign coloque:
+    module CampaignsHelper
+      def open_number(campaign)
+        "#{campaign.count_opened}/#{campaign.members.count}"
+      end
+    end
+
+  5 - Atualize o model Campaing colocando:
+    class Campaign < ApplicationRecord
+      belongs_to :user
+      has_many :members, dependent: :destroy
+      before_validation :set_member, on: :create
+      before_validation :set_status, on: :create
+      enum status: [:pending, :finished]
+      validates :title, :description, :user, :status, presence: true
+
+      def count_opened
+        self.members.where(open: true).count
+      end
+
+      private
+
+        def set_status
+          self.status = :pending
+        end
+
+        def set_member
+          self.members << Member.create(name: self.user.name, email: self.user.email)
+        end
+    end
+
+-Criação das views (Campaign Show)
+   1 - No arquivo show.html.erb na pasta app/views/campaigns coloque:
+    <div class="row campaigns">
+      <div class="col s8 offset-s2">
+        <p class="title">Informações</p>
+      </div>
+
+      <div class="campaign">
+        <div class="row cards">
+          <div class="col s8 offset-s2">
+            <div class="card horizontal">
+              <div class="card-content col s12">
+                <%= form_for @campaign, url: {action: "update"}, html: {class: "col s12 update_campaign"} do |f| %>
+                  <div class="row">
+                    <div class="row">
+                      <div class="col s12 l4 input-field">
+                        <%= f.text_field :title, 'data-length': "20" %>
+                        <label for="title" class="<%= (@campaign.title)? 'active' : '' %>">Título</label>
+                      </div>
+                      <div class="col s12 l3 input-field">
+                        <%= f.date_field :event_date, class: 'datepicker' %>
+                        <label for="title" class="<%= (@campaign.event_date)? 'active' : '' %>">Data</label>
+                      </div>
+                      <div class="col s12 l2 input-field">
+                        <%= f.text_field :event_hour %>
+                        <label for="title" class="<%= (@campaign.event_hour)? 'active' : '' %>">Hora</label>
+                      </div>
+                      <div class="col s12 l3 input-field">
+                        <%= f.text_field :location, 'data-length': "20" %>
+                        <label for="title" class="<%= (@campaign.location)? 'active' : '' %>">Local</label>
+                      </div>
+                    </div>
+                    <div class="row">
+                      <div class="col s12 input-field">
+                        <%= f.text_field :description, 'data-length': "150" %>
+                        <label for="title" class="<%= (@campaign.description)? 'active' : '' %>">Descrição</label>
+                      </div>
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col s8 offset-s2">
+          <p class="title">Membros</p>
+        </div>
+
+        <div class="row cards members">
+          <div class="col s8 offset-s2">
+            <div class="card horizontal">
+              <div class="card-content col s12">
+
+              <div class="member_list">
+                <% @campaign.members.each do |m| %>
+                  <div class="member" id="member_<%= m.id %>">
+                    <div class="row">
+                      <div class="col s12 m5 input-field">
+                        <input id="name" type="text" class="validate" value="<%= m.name %>">
+                        <label for="name" class="active">Nome</label>
+                      </div>
+                      <div class="col s12 m5 input-field">
+                        <input id="email" type="email" class="validate" value="<%= m.email %>">
+                        <label for="email" class="active" data-error="Formato incorreto">Email</label>
+                      </div>
+                      <div class="col s3 offset-s3 m1 input-field">
+                        <i class="material-icons icon <%= (m.open)? 'opened' : '' %>">visibility</i>
+                      </div>
+                      <div class="col s3 m1 input-field">
+                        <a href="#" class="remove_member" id="<%= m.id %>">
+                          <i class="material-icons icon">delete</i>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+
+              <%= form_for(Member.new) do |f| %>
+                <div class="member">
+                  <div class="row">
+                    <%= f.hidden_field :campaign_id, value: @campaign.id %>
+                    <div class="col s12 m5 input-field">
+                      <%= f.text_field :name, class: "validate"%>
+                      <label for="name" class="active">Nome</label>
+                    </div>
+                    <div class="col s12 m5 input-field">
+                      <%= f.email_field :email, class: "validate" %>
+                      <label for="member[email]" class="active" data-error="Formato incorreto">Email</label>
+                    </div>
+                  </div>
+                </div>
+              <% end %>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row btn-actions">
+        <div class="col s12 center">
+          <div class="col s6 m3 offset-m3 l2 offset-l4">
+            <%= form_for @campaign, method: 'delete', html: {class: 'remove_campaign'} do |f| %>
+              <button type='submit' class="waves-effect waves-light btn grey">Remover</button>
+            <% end %>
+          </div>
+          <div class="col s6 m3 l3">
+            <%= form_tag(raffle_campaign_path(@campaign), method: 'post', class: 'raffle_campaign') do %>
+              <button type='submit' class="waves-effect waves-light btn red">Sortear e enviar</button>
+            <% end %>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  2 - Atualize o arquivo campaings.scss colocando:
+    .campaigns{
+      margin-top: 4%;
+
+      .title{
+        color: #e86252;
+        font-size: 22px;
+        margin-bottom: 5px;
+      }
+
+      .campaigns-btn{
+        margin-bottom: 40px;
+      }
+
+      .cards{
+        .card{
+          .title{
+            font-size: 20px;
+          }
+          .data{
+            color: #aaa;
+          }
+          .subtitle{
+            margin-top: -18px;
+            margin-bottom: -6px;
+            color: #aaa;
+          }
+          .status{
+            margin-bottom: -8px;
+            .visibility-icon{
+              font-size: 16px;
+            }
+            .visibility-text{
+              font-size: 14px;
+            }
+          }
+          .enter{
+            .btn{
+              margin-top: 15%;
+              height: 45px;
+              padding-top: 5px;
+            }
+          }
+        }
+      }
+
+      .campaign{
+        .row{
+          margin-bottom: 0px;
+        }
+
+        .btn-actions{
+          margin-top: 20px;
+        }
+
+        .members{
+          margin-top: 20px;
+          .member{
+            .icon{
+              color: #aaa;
+              margin-top: 20px;
+            }
+            .opened{
+              color: #4CAF50 !important;
+            }
+          }
+          .add{
+            margin-right: 30px;
+            margin-top: -34px;
+            width: 35px;
+            height: 35px;
+            line-height: 35px;
+            i{
+              font-size: 1.4rem;
+              line-height: 35px;
+            }
+          }
+        }
+        .members{
+          .member{
+            .icon{
+              color: #aaa;
+              margin-top: 20px;
+            }
+            .opened{
+              color: #4CAF50 !important;
+            }
+          }
+          .add{
+            margin-right: 30px;
+            margin-top: -34px;
+            width: 35px;
+            height: 35px;
+            line-height: 35px;
+            i{
+              font-size: 1.4rem;
+              line-height: 35px;
+            }
+          }
+        }
+      }
+    }
+
+  3 - Crie um arquivo chamado datepicker.coffee em app/assets/javascripts/shared e coloque nele:
+    $(document).on 'turbolinks:load', ->
+      $('.datepicker').pickadate({
+        selectMonths: true,
+        selectYears: 5,
+        today: 'Today',
+        clear: 'Clear',
+        close: 'Ok',
+        closeOnSelect: true,
+        format: 'dd/mm/yyyy'
+      });
+      return
+
+-Criação do Coffeescript (campaign)
+  1 - No arquivo campaign.coffee coloque:
+    $(document).on 'turbolinks:load', ->
+      $('.update_campaign input').bind 'blur', ->
+        $('.update_campaign').submit()
+
+      $('.update_campaign').on 'submit', (e) ->
+        $.ajax e.target.action,
+            type: 'PUT'
+            dataType: 'json',
+            data: $(".update_campaign").serialize()
+            success: (data, text, jqXHR) ->
+              Materialize.toast('Campanha atualizada', 4000, 'green')
+            error: (jqXHR, textStatus, errorThrown) ->
+              Materialize.toast('Problema na atualização da Campanha', 4000, 'red')
+        return false
+
+      $('.remove_campaign').on 'submit', (e) ->
+        $.ajax e.target.action,
+            type: 'DELETE'
+            dataType: 'json',
+            data: {}
+            success: (data, text, jqXHR) ->
+              $(location).attr('href','/campaigns');
+            error: (jqXHR, textStatus, errorThrown) ->
+              Materialize.toast('Problema na remoção da Campanha', 4000, 'red')
+        return false
+
+      $('.raffle_campaign').on 'submit', (e) ->
+        $.ajax e.target.action,
+            type: 'POST'
+            dataType: 'json',
+            data: {}
+            success: (data, text, jqXHR) ->
+              Materialize.toast('Tudo certo, em breve os participantes receberão um email!', 4000, 'green')
+            error: (jqXHR, textStatus, errorThrown) ->
+              Materialize.toast(jqXHR.responseText, 4000, 'red')
+        return false
+
+-Criação do Coffeescript (member)
+  1 - Primeiro vamos adicionar ao model Member:
+    after_destroy :set_campaign_pending
+
+  2 - Atualizar o método create do controller Member:
+    def create
+      @member = Member.new(member_params)
+
+      respond_to do |format|
+        if @member.save
+          format.json { render json: @member }
+        else
+          format.json { render json: @member.errors, status: :unprocessable_entity }
+        end
+      end
+    end
+
+  3 - Coloque no arquivo members.coffee:
+    $(document).on 'turbolinks:load', ->
+      $('#member_email, #member_name').keypress (e) ->
+        if e.which == 13 && valid_email($( "#member_email" ).val()) && $( "#member_name" ).val() != ""
+          $('.new_member').submit()
+
+      $('#member_email, #member_name').bind 'blur', ->
+        if valid_email($( "#member_email" ).val()) && $( "#member_name" ).val() != ""
+          $('.new_member').submit()
+
+      $('body').on 'click', 'a.remove_member', (e) ->
+        $.ajax '/members/'+ e.currentTarget.id,
+            type: 'DELETE'
+            dataType: 'json',
+            data: {}
+            success: (data, text, jqXHR) ->
+              Materialize.toast('Membro removido', 4000, 'green')
+              $('#member_' + e.currentTarget.id).remove()
+            error: (jqXHR, textStatus, errorThrown) ->
+              Materialize.toast('Problema na remoção de membro', 4000, 'red')
+        return false
+
+      $('.new_member').on 'submit', (e) ->
+        $.ajax e.target.action,
+            type: 'POST'
+            dataType: 'json',
+            data: $(".new_member").serialize()
+            success: (data, text, jqXHR) ->
+              insert_member(data['id'], data['name'],  data['email'])
+              $('#member_name, #member_email').val("")
+              $('#member_name').focus()
+              Materialize.toast('Membro adicionado', 4000, 'green')
+            error: (jqXHR, textStatus, errorThrown) ->
+              Materialize.toast('Problema na hora de incluir membro', 4000, 'red')
+        return false
+
+
+    valid_email = (email) ->
+      /^([a-zA-Z0-9_.+-])+\@(([a-zA-Z0-9-])+\.)+([a-zA-Z0-9]{2,4})+$/.test(email)
+
+    insert_member = (id, name, email) ->
+      $('.member_list').append(
+        '<div class="member" id="member_' + id + '">' +
+          '<div class="row">' +
+            '<div class="col s12 m5 input-field">' +
+              '<input id="name" type="text" class="validate" value="' + name + '">' +
+              '<label for="name" class="active">Nome</label>' +
+            '</div>' +
+            '<div class="col s12 m5 input-field">' +
+              '<input id="email" type="email" class="validate" value="' + email + '">' +
+              '<label for="email" class="active" data-error="Formato incorreto">Email</label>' +
+            '</div>' +
+            '<div class="col s3 offset-s3 m1 input-field">' +
+              '<i class="material-icons icon">visibility</i>' +
+            '</div>' +
+            '<div class="col s3 m1 input-field">' +
+              '<a href="#" class="remove_member" id="' + id + '">' +
+                '<i class="material-icons icon">delete</i>' +
+              '</a>' +
+            '</div>' +
+          '</div>' +
+        '</div>')
+
+-Criação do Template de Email
+  *Opcional
+    1 - Baixando o foundation: Rode no seu console (você precisa ter o node instalado ou usar um container docker):
+      git clone https://github.com/zurb/foundation-emails-template project
+
+    2 - Agora rode:
+      cd project
+
+    3 - E finalmente:
+      npm install
+
+      Observação: Ao instalar o npm, caso ocorra o erro abaixo, siga os passos para resolver o problema:
+        npm ERR! Command failed: /usr/bin/git checkout 4.0
+  
+        Resolução:
+          Edite o arquivo package.json e faça a substituição abaixo:
+          substitua "gulp": "git+https://github.com/gulpjs/gulp.git#4.0", por "gulp": "4.0",
+
+    4 - Em src/pages crie um arquivo chamado raffle.html e coloque nele esse exemplo:
+      <container class="body-drip">
+        <spacer size="16"></spacer>
+
+        <!-- <center> -->
+          <row>
+            <columns large="2">
+            </columns>
+            <columns large="1" class="center">
+              <img src="http://localhost:3000/assets/logo.png" alt="">
+            </columns>
+            <columns large="8">
+              <h4>Nosso Amigo Secreto</h4>
+            </columns>
+          </row>
+        <!-- </center> -->
+
+        <spacer size="16"></spacer>
+
+        <row>
+          <columns>
+            <h4 class="text-center">Title</h4>
+            <p class="text-center"><b>10/10</b> | <b>Sp</b></p>
+            <spacer size="16"></spacer>
+            <p class="text-center">Meu amigo secreto vai rolar na lagoa...</p>
+          </columns>
+        </row>
+
+        <hr/>
+
+        <row>
+          <columns>
+            <spacer size="4"></spacer>
+            <p class="text-center">Olá José, a Maria criou uma campanha de amigo secreto no site Nosso Amigo Secreto e incluiu você. Logo a baixo voce pode saber com querm saiu.</p>
+            <spacer size="8"></spacer>
+            <p class="text-center">Seu amigo secreto é:&nbsp;<b><u>Ruby</u></b></p>
+            <spacer size="8"></spacer>
+            <center>
+              <button href="http://onebitcode.com" class="" >Crie sua campanha também</button>
+            </center>
+          </columns>
+        </row>
+
+
+        <wrapper class="secondary">
+
+          <spacer size="16"></spacer>
+
+          <row>
+            <h5 class="text-center">Se conecte com a gente</h5>
+          </row>
+
+          <row>
+            <columns large="6">
+              <button class="facebook expand" href="https://www.facebook.com/onebitcode/">Facebook</button>
+            </columns>
+            <columns large="6">
+              <button class="twitter expand" href="https://twitter.com/onebitcode">Twitter</button>
+            </columns>
+          </row>
+        </wrapper>
+
+        <wrapper class="secondary">
+
+          <spacer size="2"></spacer>
+
+          <row>
+            <p class="text-center">Um Projeto do <a href="http://onebitcode.com">Bootcamp OneBitCode</a></p>
+          </row>
+
+        </wrapper>
+
+      </container>
+
+    5 - Agora rode no console:
+      npm start
+
+    6 - Visite no browser
+
+  *Obrigatório
+    1 - Coloque no seu gemfile:
+      gem 'inky-rb', require: 'inky'
+      gem 'premailer-rails'
+
+    2 - Rode no console:
+      docker-compose run --rm website bundle install
+
+    3 - Rode no console:
+      docker-compose run --rm website bundle exec rails g inky:install
+
+    4 - Coloque no arquivo config/initializers/assets.rb:
+      Rails.application.config.assets.precompile += %w( foundation_emails.css )
+
+    5 - Mude o arquivo app/views/campaign_mailer/raffle.html.erb para raffle.html.inky e coloque nele:
+      <container class="body-drip">
+        <spacer size="16"></spacer>
+
+        <!-- <center> -->
+          <row>
+            <columns large="2">
+            </columns>
+            <columns large="1" class="center">
+              <img src="http://localhost:3000/assets/logo.png" alt="">
+            </columns>
+            <columns large="8">
+              <h4>Nosso Amigo Secreto</h4>
+            </columns>
+          </row>
+        <!-- </center> -->
+
+        <spacer size="16"></spacer>
+
+        <row>
+          <columns>
+            <h4 class="text-center"><%= @campaign.title %></h4>
+            <p class="text-center"><b><%= (@campaign.event_date)? "#{@campaign.event_date.strftime("%d/%m/%y")} | " : '' %></b><b><%= @campaign.location %></b></p>
+            <spacer size="16"></spacer>
+            <p class="text-center"><%= @campaign.description %></p>
+          </columns>
+        </row>
+
+        <hr/>
+
+        <row>
+          <columns>
+            <spacer size="4"></spacer>
+            <p class="text-center">Olá <%= @member.name %>, o <%= @campaign.user.name %> criou uma campanha de amigo secreto no site Nosso Amigo Secreto e incluiu você. Logo a baixo voce pode saber com querm saiu.</p>
+            <spacer size="8"></spacer>
+            <p class="text-center">Seu amigo secreto é:&nbsp;<b><u><%= @friend.name %></u></b></p>
+            <spacer size="8"></spacer>
+            <center>
+              <button href="http://onebitcode.com" class="" >Crie sua campanha também</button>
+            </center>
+          </columns>
+        </row>
+
+
+        <wrapper class="secondary">
+
+          <spacer size="16"></spacer>
+
+          <row>
+            <h5 class="text-center">Se conecte com a gente</h5>
+          </row>
+
+          <row>
+            <columns large="6">
+              <button class="facebook expand" href="https://www.facebook.com/onebitcode/">Facebook</button>
+            </columns>
+            <columns large="6">
+              <button class="twitter expand" href="https://twitter.com/onebitcode">Twitter</button>
+            </columns>
+          </row>
+        </wrapper>
+
+        <wrapper class="secondary">
+
+          <spacer size="2"></spacer>
+
+          <row>
+            <p class="text-center">Um Projeto do <a href="http://onebitcode.com">Bootcamp OneBitCode</a></p>
+          </row>
+        </wrapper>
+
+        <img src='<%= "#{ActionMailer::Base.default_url_options[:host]}/members/#{@member.token}/opened" %>' width="1" height="1">
+      </container>
+
+-Configurando o Email
+  1 - Coloque no seu arquivo config/environments/production.rb:
+    Rails.application.configure do
+      # Settings specified here will take precedence over those in config/application.rb.
+
+      # Code is not reloaded between requests.
+      config.cache_classes = true
+
+      # Eager load code on boot. This eager loads most of Rails and
+      # your application in memory, allowing both threaded web servers
+      # and those relying on copy on write to perform better.
+      # Rake tasks automatically ignore this option for performance.
+      config.eager_load = true
+
+      # Full error reports are disabled and caching is turned on.
+      config.consider_all_requests_local       = false
+      config.action_controller.perform_caching = true
+
+      # Disable serving static files from the `/public` folder by default since
+      # Apache or NGINX already handles this.
+      config.public_file_server.enabled = ENV['RAILS_SERVE_STATIC_FILES'].present?
+
+      # Compress JavaScripts and CSS.
+      config.assets.js_compressor = :uglifier
+      # config.assets.css_compressor = :sass
+
+      # Do not fallback to assets pipeline if a precompiled asset is missed.
+      config.assets.compile = false
+
+      # `config.assets.precompile` and `config.assets.version` have moved to config/initializers/assets.rb
+
+      # Enable serving of images, stylesheets, and JavaScripts from an asset server.
+      # config.action_controller.asset_host = 'http://assets.example.com'
+
+      # Specifies the header that your server uses for sending files.
+      # config.action_dispatch.x_sendfile_header = 'X-Sendfile' # for Apache
+      # config.action_dispatch.x_sendfile_header = 'X-Accel-Redirect' # for NGINX
+
+      # Mount Action Cable outside main process or domain
+      # config.action_cable.mount_path = nil
+      # config.action_cable.url = 'wss://example.com/cable'
+      # config.action_cable.allowed_request_origins = [ 'http://example.com', /http:\/\/example.*/ ]
+
+      # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
+      # config.force_ssl = true
+
+      # Use the lowest log level to ensure availability of diagnostic information
+      # when problems arise.
+      config.log_level = :debug
+
+      # Prepend all log lines with the following tags.
+      config.log_tags = [ :request_id ]
+
+      # Use a different cache store in production.
+      # config.cache_store = :mem_cache_store
+
+      # Use a real queuing backend for Active Job (and separate queues per environment)
+      # config.active_job.queue_adapter     = :resque
+      # config.active_job.queue_name_prefix = "nosso_amigo_secreto_#{Rails.env}"
+      config.action_mailer.perform_caching = false
+
+      # Ignore bad email addresses and do not raise email delivery errors.
+      # Set this to true and configure the email server for immediate delivery to raise delivery errors.
+      # config.action_mailer.raise_delivery_errors = false
+
+      # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
+      # the I18n.default_locale when a translation cannot be found).
+      config.i18n.fallbacks = true
+
+      # Send deprecation notices to registered listeners.
+      config.active_support.deprecation = :notify
+
+      # Use default logging formatter so that PID and timestamp are not suppressed.
+      config.log_formatter = ::Logger::Formatter.new
+
+    #  config.action_mailer.default_url_options = { :host => request.host_with_port }
+      config.action_mailer.delivery_method = :smtp
+
+      config.action_mailer.raise_delivery_errors = true
+      config.action_mailer.smtp_settings = {
+        address:              ENV["SMTP_ADDRESS"],
+        port:                 ENV["SMTP_PORT"],
+        domain:               ENV["SMTP_DOMAIN"],
+        user_name:            ENV["SMTP_USER"],
+        password:             ENV["SMTP_PASSWORD"],
+        authentication:       :plain,
+        enable_starttls_auto: true
+      }
+
+      # Use a different logger for distributed setups.
+      # require 'syslog/logger'
+      # config.logger = ActiveSupport::TaggedLogging.new(Syslog::Logger.new 'app-name')
+
+      if ENV["RAILS_LOG_TO_STDOUT"].present?
+        logger           = ActiveSupport::Logger.new(STDOUT)
+        logger.formatter = config.log_formatter
+        config.logger = ActiveSupport::TaggedLogging.new(logger)
+      end
+
+      # Do not dump schema after migrations.
+      config.active_record.dump_schema_after_migration = false
+    end
+
+-Configurando as variáveis de ambiente e ajustando o projeto
+  1 - Crie um arquivo chamado .env-prod
+  
+  2 - No seu arquivo app/views/shared/_navbar.html.erb coloque:
+    <div class="navbar-fixed">
+      <nav class="top-nav">
+        <div class="nav-wrapper col s12">
+          <a href="/" class="brand-logo">
+            <%= image_tag("logo.png", class: "logo-img") %>
+
+            <span class="logo-title">
+              Nosso Amigo Secreto
+            </span>
+          </a>
+
+          <a href="#" data-activates="side-bar" class="button-collapse"><i class="material-icons">menu</i></a>
+
+          <ul class="right hide-on-med-and-down">
+            <% if current_user %>
+              <li><a href="/campaigns">Campanhas</a></li>
+              <li><a href="/users/edit">Perfil</a></li>
+              <li>  <%= link_to('Sair', destroy_user_session_path, :method => :delete) %></li>
+            <% else %>
+              <li><a href="/users/sign_in">Entrar</a></li>
+              <li><a href="/users/sign_up">Criar Conta</a></li>
+            <% end %>
+          </ul>
+        </div>
+      </nav>
+    </div>
+
+
+    <ul class="side-nav" id="side-bar">
+      <% if current_user %>
+        <li><a href="/campaigns">Campanhas</a></li>
+        <li><a href="/users/edit">Perfil</a></li>
+        <li><div class="divider"></div></li>
+        <li>  <%= link_to('Sair', destroy_user_session_path, :method => :delete) %></li>
+      <% else %>
+        <li><a href="/users/sign_in">Entrar</a></li>
+        <li><div class="divider"></div></li>
+        <li><a href="/users/sign_up">Criar Conta</a></li>
+        <li><div class="divider"></div></li>
+      <% end %>
+    </ul>
+
+  3 - Adicione a seguinte linha ao .gitignore:
+    .env-prod
+
+  4 - Crie um arquivo chamado docker-compose-prod.yml e coloque nele:
+    version: '2'
+
+    services:
+      postgres:
+        image: 'postgres:9.5'
+        volumes:
+          - 'postgres:/var/lib/postgresql/data'
+
+      redis:
+        image: 'redis:3.2-alpine'
+        command: redis-server
+        ports:
+          - '6379:6379'
+        volumes:
+          - 'redis:/var/lib/redis/data'
+
+      jobs:
+        depends_on:
+          - 'postgres'
+          - 'redis'
+          - 'app'
+        build: .
+        command: bash start_jobs.sh
+        volumes_from:
+          - box
+        env_file:
+          - '.env-prod'
+
+      app:
+        depends_on:
+          - 'postgres'
+          - 'redis'
+        build: .
+        command: bash start.sh
+        ports:
+          - '3000:3000'
+        volumes_from:
+        - box
+        env_file:
+        - '.env-prod'
+
+      box:
+        image: busybox
+        volumes:
+          - /box
+
+    volumes:
+      redis:
+      postgres:
+      box:
+
+  5 - Rode no console e salve o token para usarmos ele no próximo passo:
+    docker-compose run --rm app bundle exec rake secret
+
+  6 - Atualize seu .env-prod com os seguintes valores:
+    SECRET_KEY_BASE=TOKEN_GERADO
+    RAILS_ENV=production
+    SMTP_ADDRESS=Preencha com seus dados
+    SMTP_PORT=Preencha com seus dados
+    SMTP_DOMAIN=Preencha com seus dados
+    SMTP_USER=Preencha com seus dados
+    SMTP_PASSWORD=Preencha com seus dados
+
+    Exemplo de .env-prod com as configurações do gmail:
+      SECRET_KEY_BASE=TOKEN_GERADO
+      RAILS_ENV=production
+      SMTP_ADDRESS=smtp.gmail.com
+      SMTP_PORT=587
+      SMTP_DOMAIN=gmail.com
+      SMTP_USER=seu_email
+      SMTP_PASSWORD=sua_senha
+
+  7 - No seu routes comente a linha que monta o sidekiq
+    # mount Sidekiq::Web => '/sidekiq'
+
+-O que é o Nginx, porque e como usá-lo (Configurando o Nginx)
+  1 - Pequeno ajuste no passo anterior, no arquivo de production na variável config.action_mailer.default_url_options coloque:
+  config.action_mailer.default_url_options = { :host => 'http://localhost:3000' }
+
+  2 - Coloque no seu docker-compose-prod.yml:
+    version: '2'
+
+    services:
+      postgres:
+        image: 'postgres:9.5'
+        volumes:
+          - 'postgres:/var/lib/postgresql/data'
+
+      redis:
+        image: 'redis:3.2-alpine'
+        command: redis-server
+        ports:
+          - '6379:6379'
+        volumes:
+          - 'redis:/var/lib/redis/data'
+
+      jobs:
+        depends_on:
+          - 'postgres'
+          - 'redis'
+          - 'app'
+        build: .
+        command: bash start_jobs.sh
+        volumes_from:
+          - box
+        env_file:
+          - '.env-prod'
+
+      app:
+        depends_on:
+          - 'postgres'
+          - 'redis'
+        build: .
+        command: bash start.sh
+        ports:
+          - '3000:3000'
+        volumes_from:
+        - box
+        env_file:
+        - '.env-prod'
+
+
+      web:
+        build:
+          context: .
+          dockerfile: Dockerfile-nginx
+        links:
+          - app
+        ports:
+          - "80:80"
+
+
+      box:
+        image: busybox
+        volumes:
+          - /box
+
+    volumes:
+      redis:
+      postgres:
+      box:
+
+  3 - Crie um arquivo chamado Dockerfile-nginx e coloque nele:
+    # Base image:
+    FROM nginx
+    # Install dependencies
+    RUN apt-get update -qq && apt-get -y install apache2-utils
+    # establish where Nginx should look for files
+    ENV RAILS_ROOT /nosso_amigo_secreto
+
+    # Set our working directory inside the image
+    WORKDIR $RAILS_ROOT
+
+    # create log directory
+    RUN mkdir log
+
+    # copy over static assets
+    COPY public public/
+
+    # Copy Nginx config template
+    COPY config/nginx.conf /tmp/docker_example.nginx
+
+    # substitute variable references in the Nginx config template for real values from the environment
+    # put the final config in its place
+    RUN envsubst '$RAILS_ROOT' < /tmp/docker_example.nginx > /etc/nginx/conf.d/default.conf
+    #RUN rm -rf /etc/nginx/sites-available/default
+    #ADD config/nginx.conf /etc/nginx/sites-enabled/nginx.conf
+
+    EXPOSE 80
+
+    # Use the "exec" form of CMD so Nginx shuts down gracefully on SIGTERM (i.e. `docker stop`)
+    CMD [ "nginx", "-g", "daemon off;" ]
+
+  4 - Crie um arquivo chamado nginx.conf em config/ e coloque nele:
+    upstream nossoamigosecreto {
+      server app:3000;
+    }
+
+
+    server {
+
+      listen 80;
+
+      client_max_body_size 4G;
+      keepalive_timeout 10;
+
+      error_page 500 502 504 /500.html;
+      error_page 503 @503;
+
+      server_name localhost nossoamigosecreto;
+      root /nosso_amigo_secreto/public;
+      try_files $uri/index.html $uri @nossoamigosecreto;
+
+      location @nossoamigosecreto {
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Host $http_host;
+        proxy_redirect off;
+
+        proxy_pass http://nossoamigosecreto;
+        # limit_req zone=one;
+        access_log /nosso_amigo_secreto/log/nginx.access.log;
+        error_log  /nosso_amigo_secreto/log/nginx.error.log;
+      }
+
+      location ^~ /assets/ {
+        gzip_static on;
+        expires max;
+        add_header Cache-Control public;
+      }
+
+      location = /50x.html {
+        root html;
+      }
+
+      location = /404.html {
+        root html;
+      }
+
+      if ($request_method !~ ^(GET|HEAD|PUT|PATCH|POST|DELETE|OPTIONS)$ ){
+        return 405;
+      }
+    }
+
+  5 - Para gerar os assets rode:
+    docker-compose run --rm website bundle exec rake assets:precompile
+    docker-compose -f docker-compose-prod.yml run app bundle exec rake assets:precompile
+    Caso o container esteja startado:
+    docker-compose exec --rm website bundle exec rake assets:precompile
+    docker-compose -f docker-compose-prod.yml exec app bundle exec rake assets:precompile
+
+  6 - Para criar o banco de dados de produção rode:
+    docker-compose -f docker-compose-prod.yml run app bundle exec rake db:create db:migrate
+    Caso o container esteja startado:
+    docker-compose -f docker-compose-prod.yml exec app bundle exec rake db:create db:migrate
+
+  7 - Para ver no browser rode:
+    docker-compose -f docker-compose-prod.yml up --build
+
+-Preparando seu Host
+  1 - Caso você não possua uma conta na Digital Ocean acesse o link a baixo e crie (com o link a baixo você vai ganhar $10 de crédito):
+    https://m.do.co/c/4ede815c4ced
+
+  2 - Gere um Token na URL a baixo e guarde para usarmos em breve:
+    https://cloud.digitalocean.com/settings/api/tokens?i=116c39
+
+  3 - Solicitando que a DO abra as portas de SMTP
+    https://www.digitalocean.com/company/contact/
+
+-O que é o Docker Machine, porque e como usá-lo (Configurando o docker-machine)
+  1 - Como instalar:
+    https://docs.docker.com/machine/install-machine/#installing-machine-directly
+
+  2 - Vamos criar a nossa máquina na DO:
+    VPS de 10$
+      docker-machine create --driver=digitalocean --digitalocean-access-token=$DO_TOKEN --digitalocean-size=1gb nasproduction
+    VPS de 5$
+      docker-machine create --driver=digitalocean --digitalocean-access-token=$DO_TOKEN --digitalocean-size=s-1vcpu-1gb nasproduction
+
+  2 - Rode no console e guarde o Ip para usarmos no próximo passo:
+    docker-machine ls nasproduction
+
+  3 - Atualize o seu arquivo de production colocando o Ip em config.action_mailer.default_url_options
+  
+  4 - Vamos ver os ambientes disponíveis:
+    docker-machine ls
+  
+  5 - Voltando para o ambiente de dev:
+    eval "$(docker-machine env -u)"
+  
+  6 - Entrando no ambiente de production:
+    eval "$(docker-machine env nasproduction)"
+
+  7 - No arquivo production.rb em enviroments/ substitua a linha config.action_mailer.default_url_options = { :host => 'http://localhost:3000' } pela linha abaixo, setando o IP da VPS da Digital Ocean:    
+    config.action_mailer.default_url_options = { :host => '167.71.164.44' }
+
+-Realizando o deploy
+  1 - Entrando no ambiente de production:
+    eval "$(docker-machine env nasproduction)"
+  2 - Criando os services:
+    docker-compose -f docker-compose-prod.yml build
+
+  3 - Executa o bundle install:
+    docker-compose -f docker-compose-prod.yml run --rm app bundle install
+  
+  4 - Criando o banco de dados:
+    docker-compose -f docker-compose-prod.yml run --rm app bundle exec rake db:create db:migrate
+  
+  5 - Subindo os services:
+    docker-compose -f docker-compose-prod.yml up -d
